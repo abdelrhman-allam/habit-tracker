@@ -34,12 +34,38 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Get all logs for the habit
     const logs = await prisma.habitLog.findMany({
       where: { habitId: params.habitId },
       orderBy: { date: "asc" },
     });
 
-    return NextResponse.json(logs);
+    // Process logs to count completions per day
+     const processedLogs = logs.reduce((acc, log) => {
+       const dateString = new Date(log.date).toISOString().split('T')[0];
+       
+       // Find if we already have an entry for this date
+       const existingLogIndex = acc.findIndex(
+         (item) => new Date(item.date).toISOString().split('T')[0] === dateString
+       );
+      
+      if (existingLogIndex >= 0) {
+        // If the log is completed, increment the count
+        if (log.completed) {
+          acc[existingLogIndex].count = (acc[existingLogIndex].count || 1) + 1;
+        }
+      } else {
+        // Add a new entry with count 1 if completed
+        acc.push({
+          ...log,
+          count: log.completed ? 1 : 0
+        });
+      }
+      
+      return acc;
+    }, []);
+
+    return NextResponse.json(processedLogs);
   } catch (error) {
     console.error("Error fetching habit logs:", error);
     return NextResponse.json(

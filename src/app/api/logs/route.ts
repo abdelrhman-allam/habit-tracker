@@ -41,31 +41,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check if a log already exists for this habit and date
-    const existingLog = await prisma.habitLog.findFirst({
-      where: {
-        habitId,
-        date: new Date(date),
-      },
-    });
-
-    let log;
-
-    if (existingLog) {
-      // Update existing log
-      log = await prisma.habitLog.update({
-        where: { id: existingLog.id },
-        data: { completed },
-      });
-    } else {
-      // Create new log
-      log = await prisma.habitLog.create({
-        data: {
+    // For toggling off, we'll delete all logs for that day
+    // For toggling on, we'll add a new log entry
+    
+    if (!completed) {
+      // Delete all logs for this habit and date
+      await prisma.habitLog.deleteMany({
+        where: {
           habitId,
           date: new Date(date),
-          completed: completed !== undefined ? completed : true,
         },
       });
+      
+      return NextResponse.json({ success: true, deleted: true });
+    } else {
+      // Create a new log entry with a slightly different timestamp to avoid unique constraint
+      const log = await prisma.habitLog.create({
+        data: {
+          habitId,
+          // Add a few seconds to the date to make it unique
+          date: new Date(new Date(date).getTime() + Math.floor(Math.random() * 86400000)),
+          completed: true,
+        },
+      });
+      
+      return NextResponse.json(log);
     }
 
     return NextResponse.json(log);
