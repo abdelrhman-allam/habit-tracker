@@ -30,6 +30,7 @@ export default function CalendarHeatmap({
   const [isLoading, setIsLoading] = useState(false);
   const [currentDate] = useState(new Date());
   const [showAllHabits, setShowAllHabits] = useState(false);
+  const [githubView, setGithubView] = useState(true);
 
   // Generate dates for the current month
   const daysInMonth = new Date(
@@ -140,6 +141,74 @@ export default function CalendarHeatmap({
     };
   };
 
+  // Helper to get completion info for a specific habit's logs
+  const getCompletionInfoForLogs = (logs: HabitLog[], date: Date) => {
+    const dateString = date.toISOString().split("T")[0];
+    const logsForDate = logs.filter(
+      (log) => {
+        const d = typeof log.date === 'string' ? new Date(log.date) : new Date(log.date);
+        const ds = d.toISOString().split('T')[0];
+        return ds === dateString && log.completed;
+      }
+    );
+    return {
+      isCompleted: logsForDate.length > 0,
+      count: logsForDate.length,
+    };
+  };
+
+  // Generate weeks covering the last year (GitHub-style)
+  const generateLastYearWeeks = () => {
+    const end = new Date();
+    end.setHours(0, 0, 0, 0);
+    const start = new Date(end);
+    start.setDate(end.getDate() - 365);
+    // Align start to previous Sunday for 7-row grid
+    while (start.getDay() !== 0) {
+      start.setDate(start.getDate() - 1);
+    }
+
+    const weeks: Date[][] = [];
+    let week: Date[] = [];
+    const iter = new Date(start);
+    while (iter <= end) {
+      week.push(new Date(iter));
+      if (week.length === 7) {
+        weeks.push(week);
+        week = [];
+      }
+      iter.setDate(iter.getDate() + 1);
+    }
+    if (week.length) {
+      // Fill remaining days to complete the last week (beyond end)
+      while (week.length < 7) {
+        week.push(new Date(iter));
+        iter.setDate(iter.getDate() + 1);
+      }
+      weeks.push(week);
+    }
+    return weeks;
+  };
+
+  const toggleHabitCompletionForHabit = async (habitId: string, date: Date) => {
+    try {
+      const dateString = date.toISOString().split("T")[0];
+      const logs = allHabitLogs[habitId] || [];
+      const { isCompleted } = getCompletionInfoForLogs(logs, date);
+      const response = await fetch("/api/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ habitId, date: dateString, completed: !isCompleted }),
+      });
+      if (response.ok) {
+        await fetchHabitLogs(habitId);
+        await fetchAllHabitLogs();
+      }
+    } catch (error) {
+      console.error("Error toggling habit completion:", error);
+    }
+  };
+
   const getSelectedHabitColor = () => {
     const habit = habits.find((h) => h.id === selectedHabit);
     return habit?.color || "#4f46e5";
@@ -180,7 +249,7 @@ export default function CalendarHeatmap({
           </select>
         </div>
         
-        <div className="flex items-center">
+        <div className="flex items-center gap-6">
           <label className="inline-flex items-center cursor-pointer">
             <input 
               type="checkbox" 
@@ -190,6 +259,17 @@ export default function CalendarHeatmap({
             />
             <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
             <span className="ms-3 text-sm font-medium text-gray-700">Show All Habits</span>
+          </label>
+
+          <label className="inline-flex items-center cursor-pointer">
+            <input 
+              type="checkbox" 
+              checked={githubView} 
+              onChange={() => setGithubView(!githubView)}
+              className="sr-only peer"
+            />
+            <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            <span className="ms-3 text-sm font-medium text-gray-700">GitHub Grid</span>
           </label>
         </div>
       </div>
@@ -219,6 +299,124 @@ export default function CalendarHeatmap({
             ))}
           </div>
 
+          {githubView ? (
+            // GitHub-style year grid view with month and day labels
+            (() => {
+              const weeks = generateLastYearWeeks();
+              const monthLabelForWeek = (week: Date[]) => {
+                const firstOfMonth = week.find((d) => d.getDate() === 1);
+                return firstOfMonth
+                  ? firstOfMonth.toLocaleString('default', { month: 'short' })
+                  : '';
+              };
+
+              const DayLabels = () => (
+                <div className="flex flex-col mr-2 text-[10px] text-gray-500 select-none">
+                  {Array.from({ length: 7 }).map((_, i) => (
+                    <div key={`dl-${i}`} className="h-3 md:h-4 flex items-center">
+                      {(i === 1 || i === 3 || i === 5) ?
+                        (i === 1 ? 'Mon' : i === 3 ? 'Wed' : 'Fri') : ''}
+                    </div>
+                  ))}
+                </div>
+              );
+
+              const MonthsRow = () => (
+                <div className="flex gap-1 mb-1 ml-[1.25rem]">
+                  {weeks.map((week, wIdx) => (
+                    <div key={`m-${wIdx}`} className="w-3 md:w-4 text-[10px] text-gray-500">
+                      {monthLabelForWeek(week)}
+                    </div>
+                  ))}
+                </div>
+              );
+
+              if (showAllHabits) {
+                return (
+                  <div className="space-y-4 overflow-x-auto pt-1">
+                    {habits.map((habit) => {
+                      const logs = allHabitLogs[habit.id] || [];
+                      return (
+                        <div key={`habit-grid-${habit.id}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="h-3 w-3 rounded-sm" style={{ backgroundColor: habit.color }}></div>
+                            <span className="text-sm text-gray-700">{habit.title}</span>
+                          </div>
+                          <MonthsRow />
+                          <div className="flex">
+                            <DayLabels />
+                            <div className="flex gap-1">
+                              {weeks.map((week, wIdx) => (
+                                <div key={`week-${habit.id}-${wIdx}`} className="flex flex-col gap-1">
+                                  {week.map((date, dIdx) => {
+                                    const { isCompleted, count } = getCompletionInfoForLogs(logs, date);
+                                    const isToday = date.toDateString() === new Date().toDateString();
+                                    const isPast = date <= new Date();
+                                    const r = parseInt(habit.color.slice(1, 3), 16);
+                                    const g = parseInt(habit.color.slice(3, 5), 16);
+                                    const b = parseInt(habit.color.slice(5, 7), 16);
+                                    const intensity = count === 1 ? 0.7 : count === 2 ? 0.85 : count >= 3 ? 1 : 0;
+                                    const backgroundColor = isCompleted ? `rgb(${Math.round(r * intensity)}, ${Math.round(g * intensity)}, ${Math.round(b * intensity)})` : '#eef2ff';
+                                    return (
+                                      <button
+                                        key={`cell-${habit.id}-${wIdx}-${dIdx}`}
+                                        onClick={() => toggleHabitCompletionForHabit(habit.id, date)}
+                                        disabled={!isPast && !isToday}
+                                        className={`w-3 h-3 md:w-4 md:h-4 rounded-sm ${isCompleted ? '' : 'border border-gray-200'} ${isToday ? 'ring-1 ring-indigo-300' : ''}`}
+                                        style={{ backgroundColor }}
+                                        title={`${habit.title} • ${date.toLocaleDateString()} • ${count}x`}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              // Single selected habit grid
+              const baseColor = getSelectedHabitColor();
+              const r = parseInt(baseColor.slice(1, 3), 16);
+              const g = parseInt(baseColor.slice(3, 5), 16);
+              const b = parseInt(baseColor.slice(5, 7), 16);
+              return (
+                <div className="overflow-x-auto pt-1">
+                  <MonthsRow />
+                  <div className="flex">
+                    <DayLabels />
+                    <div className="flex gap-1">
+                      {weeks.map((week, wIdx) => (
+                        <div key={`week-${wIdx}`} className="flex flex-col gap-1">
+                          {week.map((date, dIdx) => {
+                            const { isCompleted, count } = getDateCompletionInfo(date);
+                            const isToday = date.toDateString() === new Date().toDateString();
+                            const isPast = date <= new Date();
+                            const intensity = count === 1 ? 0.7 : count === 2 ? 0.85 : count >= 3 ? 1 : 0;
+                            const backgroundColor = isCompleted ? `rgb(${Math.round(r * intensity)}, ${Math.round(g * intensity)}, ${Math.round(b * intensity)})` : '#eef2ff';
+                            return (
+                              <button
+                                key={`cell-${wIdx}-${dIdx}`}
+                                onClick={() => toggleHabitCompletion(date)}
+                                disabled={!isPast && !isToday}
+                                className={`w-3 h-3 md:w-4 md:h-4 rounded-sm ${isCompleted ? '' : 'border border-gray-200'} ${isToday ? 'ring-1 ring-indigo-300' : ''}`}
+                                style={{ backgroundColor }}
+                                title={`${date.toLocaleDateString()} • ${count}x`}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()
+          ) : (
           <div className="grid grid-cols-7 gap-1">
             {/* Empty cells for days before the 1st of the month */}
             {Array.from({
@@ -336,6 +534,7 @@ export default function CalendarHeatmap({
               }
             })}
           </div>
+          )}
 
           <div className="mt-6 flex items-center justify-center space-x-2">
             <div className="flex items-center">
