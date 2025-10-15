@@ -66,8 +66,8 @@ export default function CalendarHeatmap({
     }
   }, [habits]);
 
-  const fetchAllHabitLogs = async () => {
-    setIsLoading(true);
+  const fetchAllHabitLogs = async (showLoading: boolean = true) => {
+    if (showLoading) setIsLoading(true);
     try {
       const logsMap: Record<string, HabitLog[]> = {};
       
@@ -83,12 +83,12 @@ export default function CalendarHeatmap({
     } catch (error) {
       console.error("Error fetching all habit logs:", error);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
-  const fetchHabitLogs = async (habitId: string) => {
-    setIsLoading(true);
+  const fetchHabitLogs = async (habitId: string, showLoading: boolean = true) => {
+    if (showLoading) setIsLoading(true);
     try {
       const response = await fetch(`/api/logs/${habitId}`);
       if (response.ok) {
@@ -98,7 +98,7 @@ export default function CalendarHeatmap({
     } catch (error) {
       console.error("Error fetching habit logs:", error);
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
@@ -108,6 +108,27 @@ export default function CalendarHeatmap({
     try {
       const dateString = date.toISOString().split("T")[0];
       const { isCompleted } = getDateCompletionInfo(date);
+
+      // Optimistic update before network call
+      const tempLog: HabitLog = {
+        id: `temp-${Date.now()}`,
+        date: new Date(date).toISOString(),
+        completed: true,
+      };
+
+      setHabitLogs((prev) => {
+        return !isCompleted
+          ? [...prev, tempLog]
+          : prev.filter((l) => l.date.split("T")[0] !== dateString);
+      });
+
+      setAllHabitLogs((prev) => {
+        const arr = prev[selectedHabit] || [];
+        const next = !isCompleted
+          ? [...arr, tempLog]
+          : arr.filter((l) => l.date.split("T")[0] !== dateString);
+        return { ...prev, [selectedHabit]: next };
+      });
 
       const response = await fetch("/api/logs", {
         method: "POST",
@@ -122,8 +143,9 @@ export default function CalendarHeatmap({
       });
 
       if (response.ok) {
-        fetchHabitLogs(selectedHabit);
-        fetchAllHabitLogs(); // Refresh all habit logs
+        // Silent revalidation to sync with server, avoid showing loader
+        fetchHabitLogs(selectedHabit, false);
+        fetchAllHabitLogs(false);
       }
     } catch (error) {
       console.error("Error toggling habit completion:", error);
@@ -509,6 +531,7 @@ export default function CalendarHeatmap({
 
                 return (
                   <button
+                    type="button"
                     key={date.toISOString()}
                     onClick={() => toggleHabitCompletion(date)}
                     disabled={!isPast && !isToday}
